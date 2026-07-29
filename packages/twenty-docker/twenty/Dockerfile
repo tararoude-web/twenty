@@ -44,12 +44,16 @@ COPY ./packages/twenty-shared /app/packages/twenty-shared
 COPY ./packages/twenty-client-sdk /app/packages/twenty-client-sdk
 COPY ./packages/twenty-server /app/packages/twenty-server
 
-RUN npx nx run twenty-server:lingui:extract && \
-    npx nx run twenty-server:lingui:compile && \
-    npx nx run twenty-emails:lingui:extract && \
-    npx nx run twenty-emails:lingui:compile
+# --parallel=1: nx's default concurrency (multiple dependent project builds at
+# once) is enough on its own to starve lingui's worker-thread extraction of
+# CPU and trigger a worker init timeout on this host's 6 vCPUs; see the note
+# on the matching front-build RUN below for the full explanation.
+RUN npx nx run twenty-server:lingui:extract --parallel=1 && \
+    npx nx run twenty-server:lingui:compile --parallel=1 && \
+    npx nx run twenty-emails:lingui:extract --parallel=1 && \
+    npx nx run twenty-emails:lingui:compile --parallel=1
 
-RUN npx nx run twenty-server:build
+RUN npx nx run twenty-server:build --parallel=1
 
 # Clean server build output (type declarations and compiled tests are not needed at runtime;
 # source maps are kept because twenty-infra extracts them from the image for Sentry uploads)
@@ -76,15 +80,19 @@ COPY ./packages/twenty-client-sdk /app/packages/twenty-client-sdk
 # trading a longer total build time for a reliable one.
 COPY --from=twenty-server-build /app/packages/twenty-server/dist /tmp/.build-order-marker
 
-RUN npx nx run twenty-front:lingui:extract && \
-    npx nx run twenty-front:lingui:compile
+# --parallel=1: nx's own default concurrency (it builds this project's several
+# dependencies at once) is by itself enough to starve the worker-thread
+# extraction below of CPU on this host's 6 vCPUs, independently of the
+# cross-stage overlap the COPY above already rules out.
+RUN npx nx run twenty-front:lingui:extract --parallel=1 && \
+    npx nx run twenty-front:lingui:compile --parallel=1
 # To skip the memory-intensive frontend build, pre-build on the host:
 #   npx nx build twenty-front
 # The check below will use packages/twenty-front/build/ if it already exists.
 RUN if [ -d /app/packages/twenty-front/build ]; then \
       echo "Using pre-built frontend from host"; \
     else \
-      NODE_OPTIONS="--max-old-space-size=8192" npx nx build twenty-front; \
+      NODE_OPTIONS="--max-old-space-size=8192" npx nx build twenty-front --parallel=1; \
     fi
 
 
