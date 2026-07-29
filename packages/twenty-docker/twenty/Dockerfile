@@ -67,6 +67,15 @@ COPY ./packages/twenty-ui /app/packages/twenty-ui
 COPY ./packages/twenty-shared /app/packages/twenty-shared
 COPY ./packages/twenty-sdk /app/packages/twenty-sdk
 COPY ./packages/twenty-client-sdk /app/packages/twenty-client-sdk
+
+# Force this stage to wait for twenty-server-build on low-CPU hosts: BuildKit
+# otherwise runs both compile stages concurrently, and lingui's worker-thread
+# extraction below intermittently fails with "Timeout: Did not receive an init
+# message from worker after 10000ms" when starved of CPU by the concurrent
+# nest/SWC build. Depending on the server build's output serializes the two,
+# trading a longer total build time for a reliable one.
+COPY --from=twenty-server-build /app/packages/twenty-server/dist /tmp/.build-order-marker
+
 RUN npx nx run twenty-front:lingui:extract && \
     npx nx run twenty-front:lingui:compile
 # To skip the memory-intensive frontend build, pre-build on the host:
